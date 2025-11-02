@@ -1,6 +1,32 @@
 import os
 import time
+import requests
+from datetime import datetime
 from playwright.sync_api import sync_playwright
+
+# 日志缓冲区
+log_buffer = []
+
+def log(msg):
+    print(msg)
+    log_buffer.append(msg)
+
+def send_tg_log():
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        return  # 未配置则跳过
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    final_msg = f"📌 Netlib 保活执行日志\n🕒 {now}\n\n" + "\n".join(log_buffer)
+
+    # 防止超出 Telegram 单条消息长度限制
+    for i in range(0, len(final_msg), 3900):
+        chunk = final_msg[i:i+3900]
+        requests.get(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            params={"chat_id": chat_id, "text": chunk}
+        )
 
 # 从环境变量解析多个账号
 accounts_env = os.environ.get("SITE_ACCOUNTS", "")
@@ -12,7 +38,7 @@ for item in accounts_env.split(";"):
             username, password = item.split(",", 1)
             accounts.append({"username": username.strip(), "password": password.strip()})
         except ValueError:
-            print(f"⚠️ 忽略格式错误的账号项: {item}")
+            log(f"⚠️ 忽略格式错误的账号项: {item}")
 
 fail_msgs = [
     "Invalid credentials.",
@@ -21,7 +47,7 @@ fail_msgs = [
 ]
 
 def login_account(playwright, USER, PWD):
-    print(f"🚀 开始登录账号: {USER}")
+    log(f"🚀 开始登录账号: {USER}")
     try:
         browser = playwright.chromium.launch(headless=True)
         context = browser.new_context()
@@ -42,7 +68,7 @@ def login_account(playwright, USER, PWD):
 
         success_text = "You are the exclusive owner of the following domains."
         if page.query_selector(f"text={success_text}"):
-            print(f"✅ 账号 {USER} 登录成功")
+            log(f"✅ 账号 {USER} 登录成功")
             time.sleep(5)
         else:
             failed_msg = None
@@ -51,15 +77,15 @@ def login_account(playwright, USER, PWD):
                     failed_msg = msg
                     break
             if failed_msg:
-                print(f"❌ 账号 {USER} 登录失败: {failed_msg}")
+                log(f"❌ 账号 {USER} 登录失败: {failed_msg}")
             else:
-                print(f"❌ 账号 {USER} 登录失败: 未知错误")
+                log(f"❌ 账号 {USER} 登录失败: 未知错误")
 
         context.close()
         browser.close()
 
     except Exception as e:
-        print(f"❌ 账号 {USER} 登录异常: {e}")
+        log(f"❌ 账号 {USER} 登录异常: {e}")
 
 def run():
     with sync_playwright() as playwright:
@@ -69,3 +95,4 @@ def run():
 
 if __name__ == "__main__":
     run()
+    send_tg_log()  # 发送日志
